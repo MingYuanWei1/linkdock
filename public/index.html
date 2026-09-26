@@ -74,5 +74,17 @@
       </footer>
     </section>
   </main>
+
+  <div id="viewer" class="viewer" role="dialog" aria-modal="true" aria-labelledby="viewer-title" hidden>
+    <div class="viewer-bar">
+      <button id="viewer-back" type="button" class="ghost back">‹ 返回</button>
+      <span id="viewer-title" class="viewer-title"></span>
+      <a id="viewer-open" class="ghost open-original" target="_blank" rel="noopener noreferrer">打开原网页</a>
+    </div>
+    <div id="viewer-body" class="viewer-body">
+      <p id="viewer-loading" class="viewer-loading" role="status">正在加载文章…</p>
+      <!-- 阅读页 iframe 每次打开时由 app.js 新建（见 openViewer）。 -->
+    </div>
+  </div>
 </body>
 </html>

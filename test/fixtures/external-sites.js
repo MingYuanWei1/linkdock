@@ -10,7 +10,30 @@ const WECHAT_ARTICLE = (title) => `<!DOCTYPE html>
 <meta property="og:type" content="article" />
 <link rel="shortcut icon" type="image/x-icon" href="//res.wx.qq.com/a/wx_fed/assets/res/NTI4MWU5.ico" />
 <title></title>
-</head><body><div id="js_content">正文</div></body></html>`;
+</head><body>
+<div id="page-content">
+  <h1 class="rich_media_title" id="activity-name">${title}</h1>
+  <a href="javascript:void(0);" id="js_name">示例公众号</a>
+  <div class="rich_media_content js_underline_content" id="js_content" style="visibility: hidden; opacity: 0; ">
+    <section style="margin: 0px 8px; color: rgb(62, 62, 62); visibility: visible;">
+      <p style="text-align: center;">第一段正文，介绍这篇文章的主要内容，包含足够多的文字用于阅读视图测试。</p>
+      <p><img class="rich_pages wxw-img" data-src="https://mmbiz.qpic.cn/mmbiz_jpg/abc/640?wx_fmt=jpeg" src="data:image/svg+xml,%3Csvg%3E%3C/svg%3E" style="width: 100%; visibility: visible !important;" onerror="window.__xss=1" alt="配图"></p>
+      <p>第二段<a href="https://example.org/ref?a=1&amp;b=2">参考链接</a>和<a href="javascript:alert(1)">恶意链接</a>。</p>
+      <ul><li>列表一<li>列表二</ul>
+      <mp-common-profile class="js_uneditable" data-nickname="示例"><p>自定义元素中的文字</p></mp-common-profile>
+      <iframe class="video_iframe" data-src="https://v.qq.com/x"></iframe>
+      <svg><script>window.__xss=2</script><text>svg 文本</text></svg>
+      <form action="https://evil.example/"><input name="q"><button>提交</button></form>
+      <p style="background-image: url(https://tracker.example/x.png); font-weight: bold; position: fixed;">第三段加粗</p>
+    </section>
+  </div>
+  <div id="js_pc_qr_code">微信扫一扫关注该公众号</div>
+</div>
+<script nonce="1">var msg_title = '${title}';</script>
+</body></html>`;
+
+const WECHAT_ERROR_PAGE = `<!DOCTYPE html><html><head><title>未知错误</title></head>
+<body><div class="panel"><div class="mesg-block"><p>未知错误，请稍后再试</p></div></div></body></html>`;
 
 function html(body, init = {}) {
   return new Response(body, {
@@ -41,6 +64,7 @@ export default {
     });
 
     if (url.hostname === "mp.weixin.qq.com") {
+      if (url.pathname === "/s/ErrorPageSample0001") return html(WECHAT_ERROR_PAGE);
       if (url.pathname === "/s/VerifyPageSample0001") {
         // 模拟验证页：没有 og:title。
         return html("<html><head><title>环境异常</title></head><body>完成验证后即可继续访问</body></html>");
@@ -83,6 +107,27 @@ export default {
           <meta property="og:title" content="&lt;img src=x onerror=&quot;window.__xss=1&quot;&gt;&lt;script&gt;window.__xss=2&lt;/script&gt;">
           <link rel="icon" href="javascript:alert(1)">
           </head></html>`);
+      case "/reader-article":
+        return html(`<!doctype html><html><head><title>普通文章</title></head><body>
+          <nav><ul><li><a href="/">首页</a><li><a href="/about">关于</a></ul></nav>
+          <article>
+            <h1>普通文章标题</h1>
+            <p>这是一篇普通网站的文章正文，包含足够长的文字，用来确认阅读视图提取的是 article 元素中的内容。</p>
+            <p><img src="/images/photo.jpg" alt="照片"> <a href="/related">相关文章</a></p>
+            <xmp><script>window.__xss=3</script></xmp>
+            <noscript><img src="x" onerror="window.__xss=4"></noscript>
+            <p onclick="window.__xss=5">点击事件被移除</p>
+          </article>
+          <aside>侧边栏广告</aside>
+          <footer>页脚版权信息</footer>
+        </body></html>`);
+      case "/reader-body":
+        return html(`<html><head><title>没有 article 的页面</title></head><body>
+          <div class="post"><p>这个页面没有 article 或 main 元素，所以阅读视图会使用整个 body 中的正文内容来显示。</p></div>
+        </body></html>`);
+      case "/reader-empty":
+        return html(`<html><head><title>脚本渲染的页面</title></head><body><div id="app"></div>
+          <script src="/bundle.js"></script></body></html>`);
       case "/no-title":
         return html("<html><head></head><body>nothing</body></html>");
       case "/error":

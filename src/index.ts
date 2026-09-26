@@ -7,6 +7,9 @@
 //   GET    /api/links          ?q=搜索词&limit=数量  读取或搜索列表（仅会话），支持 If-None-Match
 //   POST   /api/links          { url } 提交链接（会话或上传密钥）
 //   DELETE /api/links/:id      删除条目（仅会话）
+//
+// 阅读视图（返回 HTML，供网页端在 sandbox iframe 中显示）：
+//   GET    /read/:id           获取已保存链接的文章并生成整理后的阅读页（仅会话）
 
 import {
   clearLoginFailures,
@@ -25,6 +28,7 @@ import {
 import type { Env } from "./env";
 import {
   deleteLink,
+  getLink,
   getVersion,
   listLinks,
   savePreviewFailure,
@@ -34,6 +38,8 @@ import {
   type LinkRow,
 } from "./links";
 import { fetchPreview } from "./preview";
+import { renderReaderMessage, renderReaderPage, READER_CSP } from "./reader-page";
+import { fetchReadable } from "./reader";
 import { parseSubmittedUrl } from "./url";
 
 export type { Env } from "./env";
@@ -76,6 +82,8 @@ class HttpError extends Error {
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
+    const read = /^\/read\/([A-Za-z0-9-]{1,64})$/.exec(url.pathname);
+    if (read) return handleRead(request, env, read[1]);
     if (!url.pathname.startsWith("/api/")) return serveAsset(request, env);
 
     let response: Response;
@@ -95,6 +103,54 @@ export default {
     return withHeaders(response, { "Cache-Control": "no-store" });
   },
 } satisfies ExportedHandler<Env>;
+
+async function handleRead(request: Request, env: Env, id: string): Promise<Response> {
+  const page = (status: number, body: string, cache = "no-store") =>
+    withHeaders(
+      new Response(body, { status, headers: { "Content-Type": "text/html; charset=utf-8" } }),
+      {
+        "Content-Security-Policy": READER_CSP,
+        // 允许被本站页面嵌入（覆盖默认的 DENY）。
+        "X-Frame-Options": "SAMEORIGIN",
+        "Cache-Control": cache,
+      },
+    );
+
+  try {
+    if (request.method !== "GET") {
+      return page(405, renderReaderMessage({ heading: "不支持的请求方法" }));
+    }
+    if (configProblem(env)) {
+      return page(503, renderReaderMessage({ heading: "服务尚未完成配置" }));
+    }
+    const now = Date.now();
+    if ((await readSession(request, env, now)) == null) {
+      return page(401, renderReaderMessage({ heading: "请先登录", message: "登录已过期，请返回后重新登录。" }));
+    }
+    const link = await getLink(env.DB, id);
+    if (!link) {
+      return page(404, renderReaderMessage({ heading: "链接不存在或已被删除" }));
+    }
+
+    const timeout = Number(env.PREVIEW_TIMEOUT_MS);
+    const outcome = await fetchReadable(link.url, timeout > 0 ? timeout : undefined);
+    if (!outcome.ok) {
+      return page(
+        502,
+        renderReaderMessage({
+          heading: "无法在此显示这篇文章",
+          message: `${outcome.reason}。可以返回后重新打开，或打开原网页。`,
+          originalUrl: link.url,
+        }),
+      );
+    }
+    const title = outcome.readable.title ?? (link.preview_status === "ok" ? link.title : null);
+    return page(200, renderReaderPage({ ...outcome.readable, title, originalUrl: link.url }), "private, max-age=300");
+  } catch (err) {
+    console.error("阅读视图出错", err);
+    return page(500, renderReaderMessage({ heading: "服务器内部错误", message: "可以返回后重新打开。" }));
+  }
+}
 
 async function serveAsset(request: Request, env: Env): Promise<Response> {
   const res = await env.ASSETS.fetch(request);

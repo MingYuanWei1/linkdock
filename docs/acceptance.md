@@ -4,8 +4,8 @@
 
 | 套件 | 运行环境 | 结果 |
 | --- | --- | --- |
-| `npm test` 接口测试 | Workers 运行时（vitest-pool-workers）、独立测试 D1、可控外部测试网页 | 67 项通过 |
-| `npm run test:e2e` 端到端测试 | 本地 `wrangler dev` + Chrome，两个独立浏览器会话 | 11 项通过 |
+| `npm test` 接口测试 | Workers 运行时（vitest-pool-workers）、独立测试 D1、可控外部测试网页 | 84 项通过 |
+| `npm run test:e2e` 端到端测试 | 本地 `wrangler dev` + Chrome，两个独立浏览器会话 | 13 项通过 |
 | `npm run typecheck` | TypeScript | 通过 |
 
 为确认测试能发现问题，曾临时破坏去重约束、内网地址校验和“失败不覆盖有效预览”规则，相应测试均失败（共 8 项），恢复代码后全部通过。
@@ -40,9 +40,22 @@
 
 冒烟测试结束后已删除全部测试条目。
 
+## 阅读视图线上测试（2026-09-26）
+
+| 链接 | 结果 |
+| --- | --- |
+| `mp.weixin.qq.com/s/gSbICIchAuzKdDfVX1EIwA` | 200，约 3.4–4.7 秒；标题、公众号“光电汇OESHOW”、14 张图片、约 1500 字正文 |
+| `mp.weixin.qq.com/s/lkadgp9kvEuyjecIT7LUGw` | 200，约 3.5–5.2 秒；公众号“奔跑中的奶酪”、14 张图片、约 900 字正文 |
+| `example.com`、`developers.cloudflare.com/d1/` | 200，约 1.3–1.4 秒 |
+
+- 微信图片：不带 Referer 请求 `mmbiz.qpic.cn` 返回原图（56 KB）；带其他网站 Referer 时返回 2 KB 的禁止引用占位图。阅读页因此全程使用 no-referrer。
+- 手机视口（Chrome 模拟 iPhone 13）截图确认排版、图片与“‹ 返回”按钮正常。
+- 微信偶尔返回“未知错误，请稍后再试”页面（短时间内重复请求时出现），阅读视图显示说明与“打开原网页”。
+
 ## 快捷指令真机反馈
 
 - 2026-09-26 第一版：从分享菜单运行总是提示“没有找到可保存的网页链接”。原因：“从输入中获取 URL”的输入是文本参数，生成器把快捷指令输入写成了单变量附件（WFTextTokenAttachment），iOS 读到的输入为空。已改为文本内嵌变量（WFTextTokenString），编码方式与开源快捷指令编译器 Cherri 一致；修复后的文件待真机再次验证。
+- 2026-09-26 12:35：线上列表中出现一篇由用户保存的微信文章（预览成功），说明提交路径已可用。
 
 ## 尚未验证（需要真机）
 

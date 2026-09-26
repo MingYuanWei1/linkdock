@@ -33,7 +33,7 @@ export async function fetchPreview(
 ): Promise<PreviewOutcome> {
   const signal = AbortSignal.timeout(timeoutMs);
   try {
-    const fetched = await fetchHtml(target, signal);
+    const fetched = await fetchPage(target, signal, { maxBytes: MAX_HTML_BYTES, stopAt: /<\/head\s*>/i });
     if (!fetched.ok) return fetched;
     const meta = await extractMetadata(fetched.html);
     const finalUrl = new URL(fetched.finalUrl);
@@ -48,11 +48,22 @@ export async function fetchPreview(
   }
 }
 
-type FetchHtmlResult =
+export type FetchPageResult =
   | { ok: true; html: string; finalUrl: string }
   | { ok: false; reason: string };
 
-async function fetchHtml(target: string, signal: AbortSignal): Promise<FetchHtmlResult> {
+export interface FetchPageOptions {
+  maxBytes: number;
+  // 读到匹配内容后提前停止（例如 </head>）；为空时读到结束或大小上限。
+  stopAt: RegExp | null;
+}
+
+// 安全地获取网页 HTML：只访问公网地址、手动校验每一跳重定向、限制大小、不携带凭证。
+export async function fetchPage(
+  target: string,
+  signal: AbortSignal,
+  { maxBytes, stopAt }: FetchPageOptions,
+): Promise<FetchPageResult> {
   let current = new URL(target);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     if (!isPublicHttpUrl(current)) return { ok: false, reason: "目标地址不是公网网页" };
@@ -88,39 +99,49 @@ async function fetchHtml(target: string, signal: AbortSignal): Promise<FetchHtml
     }
 
     const declaredLength = Number(res.headers.get("Content-Length"));
-    if (declaredLength > MAX_HTML_BYTES * 8) {
+    if (declaredLength > maxBytes * 8) {
       await res.body?.cancel();
       return { ok: false, reason: "页面过大" };
     }
 
-    const bytes = await readHead(res, signal);
+    const bytes = await readBody(res, signal, maxBytes, stopAt);
     return { ok: true, html: decodeHtml(bytes, contentType), finalUrl: current.href };
   }
   return { ok: false, reason: "重定向次数过多" };
 }
 
-// 读取响应直到 </head> 或大小上限；标题和图标都位于文档头部。
-async function readHead(res: Response, signal: AbortSignal): Promise<Uint8Array> {
+// stopAt 探测跨块边界时保留的尾部字符数，需不小于要匹配的内容长度。
+const PROBE_TAIL_CHARS = 64;
+
+// 读取响应直到 stopAt 匹配、响应结束或达到大小上限。
+async function readBody(
+  res: Response,
+  signal: AbortSignal,
+  maxBytes: number,
+  stopAt: RegExp | null,
+): Promise<Uint8Array> {
   if (!res.body) return new Uint8Array();
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
-  const probe = new TextDecoder("utf-8");
+  const probe = stopAt ? new TextDecoder("utf-8") : null;
   let total = 0;
   let tail = "";
   try {
-    while (total < MAX_HTML_BYTES) {
+    while (total < maxBytes) {
       if (signal.aborted) throw signal.reason;
       const { done, value } = await reader.read();
       if (done) break;
-      const chunk = value.byteLength + total > MAX_HTML_BYTES
-        ? value.subarray(0, MAX_HTML_BYTES - total)
+      const chunk = value.byteLength + total > maxBytes
+        ? value.subarray(0, maxBytes - total)
         : value;
       chunks.push(chunk);
       total += chunk.byteLength;
-      // 只探测 ASCII 标签，非 UTF-8 页面的其他字符被替换也不影响；跨块边界保留少量尾部字符。
-      const text = tail + probe.decode(chunk, { stream: true });
-      if (/<\/head\s*>/i.test(text)) break;
-      tail = text.slice(-16);
+      if (probe && stopAt) {
+        // 只探测 ASCII 标签，非 UTF-8 页面的其他字符被替换也不影响；跨块边界保留少量尾部字符。
+        const text = tail + probe.decode(chunk, { stream: true });
+        if (stopAt.test(text)) break;
+        tail = text.slice(-PROBE_TAIL_CHARS);
+      }
     }
   } finally {
     reader.cancel().catch(() => {});
@@ -146,7 +167,7 @@ function decodeHtml(bytes: Uint8Array, contentType: string): string {
   }
 }
 
-interface RawMetadata {
+export interface RawMetadata {
   documentTitle: string;
   ogTitle: string | null;
   twitterTitle: string | null;
@@ -154,7 +175,7 @@ interface RawMetadata {
   icons: { rel: string; href: string }[];
 }
 
-async function extractMetadata(html: string): Promise<RawMetadata> {
+export async function extractMetadata(html: string): Promise<RawMetadata> {
   const meta: RawMetadata = {
     documentTitle: "",
     ogTitle: null,
@@ -210,7 +231,7 @@ async function extractMetadata(html: string): Promise<RawMetadata> {
 
 const WECHAT_HOST = "mp.weixin.qq.com";
 
-function pickTitle(meta: RawMetadata, finalUrl: URL): string | null {
+export function pickTitle(meta: RawMetadata, finalUrl: URL): string | null {
   // 微信文章页面总会提供 og:title；验证页、已删除提示页等没有，此时视为预览失败，
   // 避免把“环境异常”之类的页面标题当作文章标题。
   const candidates =
@@ -261,7 +282,7 @@ function pickIcon(meta: RawMetadata, finalUrl: URL): string | null {
   return new URL("/favicon.ico", finalUrl).href;
 }
 
-function cleanText(value: string | null): string | null {
+export function cleanText(value: string | null): string | null {
   if (value == null) return null;
   let text = decodeEntities(value)
     .replace(/[\u0000-\u001f\u007f​-‍﻿]/g, " ")

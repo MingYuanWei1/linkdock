@@ -25,6 +25,12 @@ const els = {
   listState: $("list-state"),
   list: $("links"),
   more: $("more"),
+  viewer: $("viewer"),
+  viewerBack: $("viewer-back"),
+  viewerTitle: $("viewer-title"),
+  viewerOpen: $("viewer-open"),
+  viewerLoading: $("viewer-loading"),
+  viewerBody: $("viewer-body"),
 };
 
 const state = {
@@ -81,6 +87,7 @@ function jsonRequest(method, body) {
 function showLogin(message = "") {
   state.signedIn = false;
   stopPolling();
+  closeViewer();
   els.boot.hidden = true;
   els.appView.hidden = true;
   els.logout.hidden = true;
@@ -98,6 +105,7 @@ function showApp() {
   els.logout.hidden = false;
   resetList();
   refresh();
+  restoreViewerFromUrl();
 }
 
 function resetList() {
@@ -242,6 +250,7 @@ async function refresh() {
       state.links = body.links;
       state.hasMore = body.hasMore;
       state.etag = res.headers.get("ETag");
+      fillViewerDetails();
     }
     state.loaded = true;
     state.error = null;
@@ -285,6 +294,89 @@ async function remove(link, button) {
   state.links = state.links.filter((l) => l.id !== link.id);
   render();
   refresh();
+}
+
+// ---------- 阅读视图 ----------
+
+// 打开时写入一条历史记录，iPhone 的返回手势与浏览器返回按钮都会回到列表。
+let viewerReturnFocus = null;
+
+function openViewer(link, { push = true } = {}) {
+  if (push) history.pushState({ reader: link.id }, "", `#read/${link.id}`);
+  viewerReturnFocus = document.activeElement;
+  els.viewerTitle.textContent = link.title || link.url || "";
+  if (link.url && isWebUrl(link.url)) {
+    els.viewerOpen.href = link.url;
+    els.viewerOpen.hidden = false;
+  } else {
+    els.viewerOpen.removeAttribute("href");
+    els.viewerOpen.hidden = true;
+  }
+  els.viewerLoading.hidden = false;
+  // 每次新建 iframe：新 iframe 的首次加载不会产生历史记录，返回操作始终回到列表，
+  // 而不是在 iframe 的历史中后退。
+  els.viewerBody.querySelector("iframe")?.remove();
+  const frame = document.createElement("iframe");
+  frame.title = "文章阅读视图";
+  // 阅读页不含脚本；sandbox 不授予脚本与同源权限，只允许在新标签页打开链接。
+  frame.setAttribute("sandbox", "allow-popups allow-popups-to-escape-sandbox");
+  frame.referrerPolicy = "no-referrer";
+  frame.addEventListener("load", () => {
+    els.viewerLoading.hidden = true;
+  });
+  frame.src = `/read/${encodeURIComponent(link.id)}`;
+  els.viewerBody.append(frame);
+  els.viewer.hidden = false;
+  document.body.classList.add("viewing");
+  els.viewerBack.focus();
+}
+
+function closeViewer() {
+  if (els.viewer.hidden) return;
+  els.viewer.hidden = true;
+  document.body.classList.remove("viewing");
+  els.viewerBody.querySelector("iframe")?.remove();
+  if (viewerReturnFocus && document.contains(viewerReturnFocus)) viewerReturnFocus.focus();
+  viewerReturnFocus = null;
+}
+
+// 从地址恢复的阅读视图在列表加载后补全标题与原网页链接。
+function fillViewerDetails() {
+  const id = history.state && history.state.reader;
+  if (!id || els.viewer.hidden) return;
+  const link = state.links.find((l) => l.id === id);
+  if (!link) return;
+  if (!els.viewerTitle.textContent) els.viewerTitle.textContent = link.title || link.url;
+  if (els.viewerOpen.hidden && isWebUrl(link.url)) {
+    els.viewerOpen.href = link.url;
+    els.viewerOpen.hidden = false;
+  }
+}
+
+function goBack() {
+  if (history.state && history.state.reader) history.back();
+  else closeViewer();
+}
+
+els.viewerBack.addEventListener("click", goBack);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !els.viewer.hidden) goBack();
+});
+
+window.addEventListener("popstate", (event) => {
+  const id = event.state && event.state.reader;
+  if (!id) return closeViewer();
+  const link = state.links.find((l) => l.id === id) ?? { id, title: "", url: "" };
+  openViewer(link, { push: false });
+});
+
+// 在阅读视图中刷新页面时，重新打开同一篇文章。
+function restoreViewerFromUrl() {
+  const match = /^#read\/([A-Za-z0-9-]{1,64})$/.exec(location.hash);
+  if (!match) return;
+  history.replaceState({ reader: match[1] }, "", location.hash);
+  const link = state.links.find((l) => l.id === match[1]) ?? { id: match[1], title: "", url: "" };
+  openViewer(link, { push: false });
 }
 
 // ---------- 渲染 ----------
@@ -387,9 +479,15 @@ function buildItem(link) {
   const anchor = document.createElement(safeUrl ? "a" : "span");
   anchor.className = hasPreview ? "title" : "title raw-url";
   if (safeUrl) {
+    // 普通点击在站内阅读视图中打开；带修饰键的点击或长按仍可在新标签页打开原网页。
     anchor.href = safeUrl;
     anchor.target = "_blank";
     anchor.rel = "noopener noreferrer";
+    anchor.addEventListener("click", (event) => {
+      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      openViewer(link);
+    });
   }
   anchor.textContent = hasPreview ? link.title : link.url;
   body.append(anchor);

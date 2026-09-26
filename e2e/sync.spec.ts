@@ -188,3 +188,68 @@ test("网络中断时显示错误状态，恢复后自动重新同步", async ({
   await expect(itemFor(page, url)).toHaveCount(1);
   await expect(page.locator("#sync")).toHaveText("已同步");
 });
+
+test("点击链接在站内阅读视图中打开；返回按钮、浏览器返回和刷新都行为正确", async ({ browser }) => {
+  const page = await newSignedInPage(browser);
+  const url = uniqueUrl("reader");
+  await submitWithShortcut(url);
+  await expect(itemFor(page, url)).toHaveCount(1);
+
+  const viewer = page.locator("#viewer");
+  const frame = page.frameLocator("#viewer iframe");
+
+  await itemFor(page, url).locator("a.title").click();
+  await expect(viewer).toBeVisible();
+  await expect(page).toHaveURL(/#read\//);
+  await expect(page.getByRole("button", { name: "‹ 返回" })).toBeVisible();
+  await expect(page.locator("#viewer-open")).toHaveAttribute("href", url);
+  // .invalid 域名无法访问：阅读页显示说明和打开原网页。
+  await expect(frame.getByRole("heading", { name: "无法在此显示这篇文章" })).toBeVisible();
+  await expect(frame.getByRole("link", { name: "打开原网页" })).toHaveAttribute("href", url);
+  await expect(page.locator("#viewer-loading")).toBeHidden();
+  await expect(page.locator("#viewer iframe")).toHaveCount(1);
+
+  // 返回按钮回到列表，地址恢复。
+  await page.getByRole("button", { name: "‹ 返回" }).click();
+  await expect(viewer).toBeHidden();
+  await expect(page).not.toHaveURL(/#read\//);
+  await expect(itemFor(page, url)).toBeVisible();
+
+  // 浏览器返回（iPhone 返回手势）同样关闭阅读视图。
+  await itemFor(page, url).locator("a.title").click();
+  await expect(viewer).toBeVisible();
+  await page.goBack();
+  await expect(viewer).toBeHidden();
+  await expect(page.locator("#viewer iframe")).toHaveCount(0);
+  // 多次打开后，返回仍然直接回到列表（不会在 iframe 历史中后退）。
+  for (let i = 0; i < 2; i++) {
+    await itemFor(page, url).locator("a.title").click();
+    await expect(frame.getByRole("heading", { name: "无法在此显示这篇文章" })).toBeVisible();
+    await page.getByRole("button", { name: "‹ 返回" }).click();
+    await expect(viewer).toBeHidden();
+  }
+  await itemFor(page, url).locator("a.title").click();
+  await expect(viewer).toBeVisible();
+  await page.goBack();
+  await expect(viewer).toBeHidden();
+
+  // 前进会重新打开；在阅读视图中刷新后仍停留在该文章。
+  await page.goForward();
+  await expect(viewer).toBeVisible();
+  await page.reload();
+  await expect(viewer).toBeVisible();
+  await expect(page.locator("#viewer-open")).toHaveAttribute("href", url);
+  await page.keyboard.press("Escape");
+  await expect(viewer).toBeHidden();
+});
+
+test("阅读视图需要登录：退出后无法直接访问阅读页", async ({ browser }) => {
+  const page = await newSignedInPage(browser);
+  const url = uniqueUrl("reader-auth");
+  const { body } = await submitWithShortcut(url);
+  const anonymous = await browser.newContext();
+  const res = await anonymous.request.get(`/read/${body.link.id}`);
+  expect(res.status()).toBe(401);
+  await anonymous.close();
+  await page.close();
+});

@@ -21,6 +21,16 @@ test("手机布局：登录、提交、查看、删除都可用，且没有横�
   );
   expect(overflow).toBeLessThanOrEqual(0);
 
+  // 在阅读视图中打开并返回。
+  await item.locator("a.title").click();
+  const back = page.getByRole("button", { name: "‹ 返回" });
+  await expect(back).toBeVisible();
+  const backBox = await back.boundingBox();
+  expect(backBox!.y).toBeGreaterThanOrEqual(0);
+  expect(backBox!.height).toBeGreaterThanOrEqual(40);
+  await back.click();
+  await expect(page.locator("#viewer")).toBeHidden();
+
   const del = item.getByRole("button", { name: /删除/ });
   const box = await del.boundingBox();
   expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
