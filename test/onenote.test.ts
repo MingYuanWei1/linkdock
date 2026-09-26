@@ -66,12 +66,13 @@ async function exportRow(id: string) {
     .first<{ status: string; attempts: number; page_url: string | null; last_error: string | null }>();
 }
 
-async function waitForExport(id: string) {
-  return vi.waitFor(async () => {
-    const row = await exportRow(id);
-    if (!row || row.status === "sending") throw new Error("尚未导出");
-    return row;
-  }, { timeout: 8000, interval: 50 });
+// 导出只在定时任务中进行：等待存档完成后运行一次定时任务。
+async function exportViaCron(id: string) {
+  await waitForArticle(id);
+  await runCron();
+  const row = await exportRow(id);
+  if (!row) throw new Error("没有导出记录");
+  return row;
 }
 
 async function waitForArticle(id: string) {
@@ -167,10 +168,14 @@ describe("连接 OneNote", () => {
 });
 
 describe("导出文章到 OneNote", () => {
-  it("连接后保存的文章在后台创建为 OneNote 页面", async () => {
+  it("连接后保存的文章由定时任务创建为 OneNote 页面，保存本身不等待导出", async () => {
     await connect();
     const link = await save(WECHAT);
-    const row = await waitForExport(link.id);
+    await waitForArticle(link.id);
+    await sleep(200);
+    expect(await pageRequests()).toHaveLength(0);
+
+    const row = await exportViaCron(link.id);
     expect(row.status).toBe("done");
     expect(row.page_url).toBe("https://onenote.example/page-1");
 
@@ -200,7 +205,7 @@ describe("导出文章到 OneNote", () => {
   it("重复提交与重新获取不会再次导出", async () => {
     await connect();
     const link = await save(WECHAT);
-    await waitForExport(link.id);
+    await exportViaCron(link.id);
     expect((await submitWithKey(WECHAT)).status).toBe(200);
     expect((await call(`/read/${link.id}?refresh=1`, { headers: { Cookie: owner } })).status).toBe(200);
     await sleep(300);
@@ -212,7 +217,7 @@ describe("导出文章到 OneNote", () => {
     await connect();
     await microsoft({ failPages: 1 });
     const link = await save(WECHAT);
-    const failed = await waitForExport(link.id);
+    const failed = await exportViaCron(link.id);
     expect(failed).toMatchObject({ status: "failed", attempts: 1 });
     expect(failed.last_error).toContain("503");
 
@@ -225,7 +230,7 @@ describe("导出文章到 OneNote", () => {
     await connect();
     await microsoft({ failPages: 100 });
     const link = await save(WECHAT);
-    await waitForExport(link.id);
+    await exportViaCron(link.id);
     for (let i = 0; i < 6; i++) await runCron();
     expect(await exportRow(link.id)).toMatchObject({ status: "failed", attempts: 5 });
     expect(await pageRequests()).toHaveLength(5);
@@ -235,8 +240,8 @@ describe("导出文章到 OneNote", () => {
   it("访问令牌到期前刷新，并保存轮换后的刷新令牌", async () => {
     await microsoft({ expiresIn: 60 });
     await connect();
-    await waitForExport((await save(WECHAT)).id);
-    await waitForExport((await save("https://site.example/reader-article")).id);
+    await exportViaCron((await save(WECHAT)).id);
+    await exportViaCron((await save("https://site.example/reader-article")).id);
 
     const tokens = await tokenRequests();
     expect(tokens.map((t) => t.get("grant_type"))).toEqual(["authorization_code", "refresh_token", "refresh_token"]);
@@ -263,7 +268,7 @@ describe("导出文章到 OneNote", () => {
     await connect();
     await microsoft({ rejectRefresh: 1 });
     const link = await save(WECHAT);
-    expect(await waitForExport(link.id)).toMatchObject({ status: "failed", attempts: 0 });
+    expect(await exportViaCron(link.id)).toMatchObject({ status: "failed", attempts: 0 });
     expect((await status()).error).toContain("重新连接");
 
     await runCron();

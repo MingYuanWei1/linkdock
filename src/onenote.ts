@@ -5,7 +5,8 @@
 // 换取访问令牌创建页面。只申请 Notes.Create：可以创建页面与分区，不能读取或删除已有笔记。
 //
 // 导出范围：首次连接之后存档（包括“重新获取”或首次打开时存档）的文章，每个链接最多导出一次。
-// 存档后立即尝试导出；失败的由定时任务重试，最多 MAX_ATTEMPTS 次。
+// 导出只在每分钟运行的定时任务中进行：OneNote 创建页面常需要十几秒以上，请求结束后的
+// waitUntil 最多只有 30 秒，而定时任务可以运行 15 分钟。失败的重试，最多 MAX_ATTEMPTS 次。
 
 import { base64url, getCookie, secretEquals } from "./auth";
 import type { Env } from "./env";
@@ -24,8 +25,13 @@ export const MAX_ATTEMPTS = 5;
 const STALE_SENDING_MS = 10 * 60 * 1000;
 // 访问令牌剩余有效期短于此值时提前刷新。
 const TOKEN_MARGIN_MS = 5 * 60 * 1000;
-const REQUEST_TIMEOUT_MS = 15_000;
+const TOKEN_TIMEOUT_MS = 15_000;
+// OneNote 创建页面时会先下载正文中的所有图片，首次还要创建分区，可能很慢。
+// 超时后页面可能仍被创建，重试会产生重复页面，因此时限要足够宽松。
+const PAGE_TIMEOUT_MS = 120_000;
 const BATCH_SIZE = 10;
+// 定时任务最多运行 15 分钟；超过此时间不再开始新的导出，留给下一次。
+const BATCH_BUDGET_MS = 10 * 60 * 1000;
 // 刷新令牌长期（约 90 天）不用会失效；超过此时间没有换取过访问令牌时，定时任务主动刷新一次。
 const KEEPALIVE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -211,7 +217,7 @@ async function requestToken(
       scope: SCOPE,
       ...params,
     }),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
   });
   const body = (await res.json().catch(() => ({}))) as {
     access_token?: string;
@@ -388,8 +394,9 @@ export async function exportPending(db: D1Database, config: OneNoteConfig, now: 
     .bind(MAX_ATTEMPTS, BATCH_SIZE)
     .all<{ link_id: string }>();
   for (const { link_id } of results) {
+    if (Date.now() - now > BATCH_BUDGET_MS) return;
     try {
-      await exportArticle(db, config, link_id, now);
+      await exportArticle(db, config, link_id, Date.now());
     } catch (err) {
       if (err instanceof OneNoteAuthError) return; // 需要重新连接，其余文章留到之后
       throw err;
@@ -412,7 +419,7 @@ async function createPage(
       Accept: "application/json",
     },
     body: pageHtml(source),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
   });
   if (res.status === 401) {
     // 缓存的访问令牌已失效：清除后下次重新换取。

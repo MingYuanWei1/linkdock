@@ -5,8 +5,8 @@
   "compatibility_date": "2026-08-01",
   "workers_dev": true,
   "observability": { "enabled": true },
-  // 重试未完成的 OneNote 导出（未配置 OneNote 时什么也不做）。
-  "triggers": { "crons": ["*/30 * * * *"] },
+  // 导出新存档的文章到 OneNote 并重试失败的导出（未配置或未连接时只读一次数据库）。
+  "triggers": { "crons": ["* * * * *"] },
   "assets": {
     "directory": "public",
     "binding": "ASSETS",

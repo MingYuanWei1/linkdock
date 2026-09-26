@@ -17,7 +17,7 @@
 //   GET    /onenote/callback   授权完成后保存令牌，跳回 /?onenote=结果
 //   GET    /api/onenote        连接状态与导出统计（仅会话）
 //   DELETE /api/onenote        断开连接（仅会话）
-//   定时任务（wrangler.jsonc triggers）重试未完成的导出
+//   定时任务（wrangler.jsonc triggers，每分钟）导出新存档的文章并重试失败的导出
 
 import {
   clearLoginFailures,
@@ -50,7 +50,6 @@ import {
 } from "./links";
 import {
   disconnect,
-  exportArticle,
   exportPending,
   finishConnect,
   oneNoteConfig,
@@ -103,7 +102,7 @@ export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     const read = /^\/read\/([A-Za-z0-9-]{1,64})$/.exec(url.pathname);
-    if (read) return handleRead(request, env, ctx, read[1], url.searchParams.get("refresh") === "1");
+    if (read) return handleRead(request, env, read[1], url.searchParams.get("refresh") === "1");
     if (url.pathname === "/onenote/connect" || url.pathname === "/onenote/callback") {
       return withHeaders(await handleOneNoteAuth(request, env, url), { "Cache-Control": "no-store" });
     }
@@ -132,13 +131,7 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function handleRead(
-  request: Request,
-  env: Env,
-  ctx: ExecutionContext,
-  id: string,
-  refresh: boolean,
-): Promise<Response> {
+async function handleRead(request: Request, env: Env, id: string, refresh: boolean): Promise<Response> {
   // 存档来自数据库，读取很快，不使用浏览器缓存，保证“重新获取”后立即看到新版本。
   const page = (status: number, body: string) =>
     withHeaders(
@@ -183,7 +176,6 @@ async function handleRead(
       preview: link.preview_status !== "ok",
       readable: true,
     }, now);
-    if (saved) ctx.waitUntil(exportSaved(env, link.id));
     const outcome = content.readable!;
     if (outcome.ok) {
       return page(200, renderReaderPage({
@@ -382,9 +374,7 @@ async function postLink(
   };
   if (want.preview || want.readable) {
     ctx.waitUntil(
-      fetchAndStore(env, row, want, now)
-        .then(({ saved }) => (saved ? exportSaved(env, row.id) : undefined))
-        .catch((err) => console.error("后台抓取失败", err)),
+      fetchAndStore(env, row, want, now).catch((err) => console.error("后台抓取失败", err)),
     );
   }
 
@@ -430,17 +420,6 @@ async function fetchAndStore(
     console.log(`正文存档失败（${readable.reason}）：${row.url}`);
   }
   return { content, saved };
-}
-
-// 刚保存的存档导出到 OneNote；未配置或未连接时不做任何事。在后台运行，不抛出错误。
-async function exportSaved(env: Env, linkId: string): Promise<void> {
-  const config = oneNoteConfig(env);
-  if (!config) return;
-  try {
-    await exportArticle(env.DB, config, linkId, Date.now());
-  } catch (err) {
-    console.error("导出到 OneNote 失败", err);
-  }
 }
 
 async function requireSession(request: Request, env: Env, now: number): Promise<void> {
