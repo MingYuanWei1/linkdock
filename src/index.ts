@@ -99,6 +99,11 @@ export default {
 async function serveAsset(request: Request, env: Env): Promise<Response> {
   const res = await env.ASSETS.fetch(request);
   const extra: Record<string, string> = {};
+  if (new URL(request.url).pathname.endsWith(".shortcut")) {
+    // iOS Safari 下载后交给“快捷指令”App 导入。
+    extra["Content-Type"] = "application/octet-stream";
+    extra["Content-Disposition"] = 'attachment; filename="LinkDock.shortcut"';
+  }
   if ((res.headers.get("Content-Type") ?? "").includes("text/html")) {
     extra["Content-Security-Policy"] = PAGE_CSP;
     extra["Cache-Control"] = "no-cache";

@@ -42,6 +42,7 @@
 
 ## 尚未验证（需要真机）
 
+- 已签名快捷指令文件（`public/shortcut/LinkDock.shortcut`）在 iPhone 上的下载、导入问题、运行结果。
 - 真实 iOS 系统分享菜单调用快捷指令、快捷指令初次配置、通知显示。
 - 从微信 App 经“在默认浏览器中打开”后再分享的完整路径。
 - iPhone Safari 上的实际页面效果（自动化测试使用 Chrome 模拟 iPhone 13 视口）。

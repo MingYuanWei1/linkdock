@@ -16,7 +16,7 @@
 1. 打开站点（例如 `https://linkdock.<你的子域>.workers.dev`），输入访问密码登录。
 2. 发送链接：
    - 网页：在顶部输入框粘贴链接，点“保存”。
-   - iPhone / iPad：在 Safari 等 App 中点“分享”→ 选择“存到链接坞”快捷指令。配置方法见 [docs/ios-shortcut.md](docs/ios-shortcut.md)。
+   - iPhone / iPad：在 Safari 等 App 中点“分享”→ 选择“存到链接坞”快捷指令。在 iPhone 上登录网页后点底部链接即可安装（已签名文件，导入时填写上传密钥），详见 [docs/ios-shortcut.md](docs/ios-shortcut.md)。
 3. 接收设备打开同一网址即可看到新链接；点标题在新标签页打开，点“删除”移除。
 4. 搜索框同时匹配标题和网址。
 

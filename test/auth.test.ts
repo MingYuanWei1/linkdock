@@ -213,3 +213,15 @@ describe("跨站请求", () => {
     expect((await list(cookie)).links).toHaveLength(0);
   });
 });
+
+describe("快捷指令文件", () => {
+  it("可公开下载，是已签名的快捷指令，且不包含任何密钥", async () => {
+    const res = await call("/shortcut/LinkDock.shortcut");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Disposition")).toContain("LinkDock.shortcut");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(new TextDecoder().decode(bytes.subarray(0, 4))).toBe("AEA1");
+    const raw = new TextDecoder("latin1").decode(bytes);
+    expect(raw).not.toContain(UPLOAD_KEY);
+  });
+});

@@ -327,6 +327,15 @@ a.title:hover { color: var(--accent); }
   margin: 16px auto 0;
 }
 
+.footer {
+  margin-top: 32px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.footer a { color: var(--accent); }
+
 @media (max-width: 480px) {
   .brand-en { display: none; }
   .submit .primary { flex: 1 1 100%; }
