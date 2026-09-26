@@ -310,11 +310,30 @@ a.title:hover { color: var(--accent); }
 .domain { overflow-wrap: anywhere; }
 .pending { font-style: italic; }
 
-.delete {
+.item-actions {
   flex: none;
+  display: flex;
+  gap: 6px;
+}
+
+.item-actions button {
   min-height: 36px;
   padding: 0 12px;
   font-size: 14px;
+}
+
+.copy.flash {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 50%, var(--border));
+}
+
+.clipboard-helper {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
 .delete:hover {
@@ -425,4 +444,6 @@ body.viewing { overflow: hidden; }
   .brand-en { display: none; }
   .submit .primary { flex: 1 1 100%; }
   .link { padding-left: 12px; gap: 10px; }
+  /* 手机上两个按钮上下排列，给标题留出宽度。 */
+  .item-actions { flex-direction: column; }
 }

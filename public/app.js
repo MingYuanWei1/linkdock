@@ -297,6 +297,55 @@ async function remove(link, button) {
   refresh();
 }
 
+// ---------- 复制链接 ----------
+
+async function copyLink(link, button) {
+  const ok = await writeClipboard(link.url);
+  flashButton(button, ok ? "已复制" : "复制失败");
+  if (!ok) window.prompt("无法自动复制，请手动复制链接：", link.url);
+}
+
+async function writeClipboard(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // 权限被拒绝等情况，改用下面的旧方法
+  }
+  // 旧版浏览器：选中隐藏文本框中的内容后执行复制。
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.readOnly = true;
+  area.className = "clipboard-helper";
+  document.body.append(area);
+  area.select();
+  area.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  area.remove();
+  return ok;
+}
+
+function flashButton(button, text) {
+  const original = button.dataset.label ?? button.textContent;
+  button.dataset.label = original;
+  button.textContent = text;
+  button.classList.add("flash");
+  clearTimeout(Number(button.dataset.timer));
+  button.dataset.timer = String(
+    setTimeout(() => {
+      button.textContent = original;
+      button.classList.remove("flash");
+    }, 1500),
+  );
+}
+
 // ---------- 阅读视图 ----------
 
 // 打开时写入一条历史记录，iPhone 的返回手势与浏览器返回按钮都会回到列表。
@@ -525,14 +574,26 @@ function buildItem(link) {
   }
   body.append(meta);
 
+  const label = hasPreview ? link.title : link.url;
+  const actions = document.createElement("div");
+  actions.className = "item-actions";
+
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "copy ghost";
+  copy.textContent = "复制链接";
+  copy.setAttribute("aria-label", `复制链接 ${label}`);
+  copy.addEventListener("click", () => copyLink(link, copy));
+
   const del = document.createElement("button");
   del.type = "button";
   del.className = "delete ghost";
   del.textContent = "删除";
-  del.setAttribute("aria-label", `删除 ${hasPreview ? link.title : link.url}`);
+  del.setAttribute("aria-label", `删除 ${label}`);
   del.addEventListener("click", () => remove(link, del));
+  actions.append(copy, del);
 
-  li.append(icon, body, del);
+  li.append(icon, body, actions);
   updateTime(li, link);
   return li;
 }

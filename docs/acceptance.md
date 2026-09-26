@@ -5,7 +5,7 @@
 | 套件 | 运行环境 | 结果 |
 | --- | --- | --- |
 | `npm test` 接口测试 | Workers 运行时（vitest-pool-workers）、独立测试 D1、可控外部测试网页 | 95 项通过 |
-| `npm run test:e2e` 端到端测试 | 本地 `wrangler dev` + Chrome，两个独立浏览器会话 | 13 项通过 |
+| `npm run test:e2e` 端到端测试 | 本地 `wrangler dev` + Chrome，两个独立浏览器会话 | 14 项通过 |
 | `npm run typecheck` | TypeScript | 通过 |
 
 为确认测试能发现问题，曾临时破坏去重约束、内网地址校验和“失败不覆盖有效预览”规则，相应测试均失败（共 8 项），恢复代码后全部通过。

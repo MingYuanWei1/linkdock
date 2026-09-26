@@ -32,8 +32,15 @@ test("手机布局：登录、提交、查看、删除都可用，且没有横�
   await expect(page.locator("#viewer")).toBeHidden();
 
   const del = item.getByRole("button", { name: /删除/ });
+  const copy = item.getByRole("button", { name: /复制链接/ });
   const box = await del.boundingBox();
+  const copyBox = await copy.boundingBox();
   expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  expect(copyBox!.x + copyBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  // 手机上复制在上、删除在下，标题保留足够宽度。
+  expect(copyBox!.y).toBeLessThan(box!.y);
+  const titleBox = await item.locator("a.title").boundingBox();
+  expect(titleBox!.width).toBeGreaterThan(page.viewportSize()!.width * 0.5);
 
   page.once("dialog", (dialog) => dialog.accept());
   await del.click();

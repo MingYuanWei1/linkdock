@@ -259,3 +259,27 @@ test("阅读视图需要登录：退出后无法直接访问阅读页", async ({
   await anonymous.close();
   await page.close();
 });
+
+test("复制链接：复制原链接并显示已复制", async ({ browser }) => {
+  const context = await browser.newContext({ permissions: ["clipboard-read", "clipboard-write"] });
+  const page = await context.newPage();
+  await page.goto("/");
+  await page.getByPlaceholder("访问密码").fill(APP_PASSWORD);
+  await page.getByRole("button", { name: "登录" }).click();
+
+  const url = uniqueUrl("copy");
+  await submitWithShortcut(url);
+  completePreview(url, "要复制的文章", null);
+  const item = itemFor(page, "要复制的文章");
+  await expect(item).toHaveCount(1);
+
+  const copy = item.getByRole("button", { name: /复制链接/ });
+  await copy.click();
+  await expect(copy).toHaveText("已复制");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(url);
+  await expect(copy).toHaveText("复制链接", { timeout: 3000 });
+  // 复制不会打开阅读视图或删除条目。
+  await expect(page.locator("#viewer")).toBeHidden();
+  await expect(item).toHaveCount(1);
+  await context.close();
+});
