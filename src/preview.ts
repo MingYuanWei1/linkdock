@@ -1,11 +1,10 @@
-// 链接预览：获取网页标题与网站图标。
+// 链接预览：从网页中提取标题与网站图标；以及供预览和阅读视图共用的安全抓取。
 //
 // 安全限制：总时限、响应大小上限、每一跳重定向都校验目标必须是公网 http(s) 地址；
 // 请求不携带任何 Cookie 或凭证。标题只作为纯文本保存和显示。
 
 import { isPublicHttpUrl } from "./url";
 
-export const PREVIEW_TIMEOUT_MS = 8_000;
 export const MAX_HTML_BYTES = 1024 * 1024;
 const MAX_REDIRECTS = 5;
 const MAX_TITLE_LENGTH = 300;
@@ -27,25 +26,11 @@ export type PreviewOutcome =
   | { ok: true; preview: Preview }
   | { ok: false; reason: string };
 
-export async function fetchPreview(
-  target: string,
-  timeoutMs: number = PREVIEW_TIMEOUT_MS,
-): Promise<PreviewOutcome> {
-  const signal = AbortSignal.timeout(timeoutMs);
-  try {
-    const fetched = await fetchPage(target, signal, { maxBytes: MAX_HTML_BYTES, stopAt: /<\/head\s*>/i });
-    if (!fetched.ok) return fetched;
-    const meta = await extractMetadata(fetched.html);
-    const finalUrl = new URL(fetched.finalUrl);
-
-    const title = pickTitle(meta, finalUrl);
-    if (!title) return { ok: false, reason: "页面没有可用标题" };
-    return { ok: true, preview: { title, iconUrl: pickIcon(meta, finalUrl) } };
-  } catch (err) {
-    const name = err instanceof Error ? err.name : "";
-    if (name === "TimeoutError" || name === "AbortError") return { ok: false, reason: "请求超时" };
-    return { ok: false, reason: "请求失败" };
-  }
+export async function previewFromHtml(html: string, finalUrl: URL): Promise<PreviewOutcome> {
+  const meta = await extractMetadata(html);
+  const title = pickTitle(meta, finalUrl);
+  if (!title) return { ok: false, reason: "页面没有可用标题" };
+  return { ok: true, preview: { title, iconUrl: pickIcon(meta, finalUrl) } };
 }
 
 export type FetchPageResult =

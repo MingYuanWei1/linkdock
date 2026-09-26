@@ -9,7 +9,8 @@
 //   DELETE /api/links/:id      删除条目（仅会话）
 //
 // 阅读视图（返回 HTML，供网页端在 sandbox iframe 中显示）：
-//   GET    /read/:id           获取已保存链接的文章并生成整理后的阅读页（仅会话）
+//   GET    /read/:id           显示已保存链接的文章存档；尚无存档时抓取并存档（仅会话）
+//   GET    /read/:id?refresh=1 重新抓取并更新存档；失败时保留并显示原存档
 
 import {
   clearLoginFailures,
@@ -26,20 +27,21 @@ import {
   SESSION_RENEW_BELOW_MS,
 } from "./auth";
 import type { Env } from "./env";
+import { fetchLinkContent, type LinkContent, type Wanted } from "./content";
 import {
   deleteLink,
-  getLink,
+  getLinkWithArticle,
   getVersion,
+  hasArticle,
   listLinks,
+  saveArticle,
   savePreviewFailure,
   savePreviewSuccess,
   submitLink,
   toView,
   type LinkRow,
 } from "./links";
-import { fetchPreview } from "./preview";
 import { renderReaderMessage, renderReaderPage, READER_CSP } from "./reader-page";
-import { fetchReadable } from "./reader";
 import { parseSubmittedUrl } from "./url";
 
 export type { Env } from "./env";
@@ -48,6 +50,8 @@ const MAX_BODY_BYTES = 16 * 1024;
 const DEFAULT_LIST_LIMIT = 100;
 const MAX_LIST_LIMIT = 1000;
 const MAX_QUERY_LENGTH = 200;
+// 超过此长度的正文不存档（D1 单行上限约 2 MB），仍可实时显示。
+const MAX_ARCHIVE_CHARS = 1024 * 1024;
 
 const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
@@ -83,7 +87,7 @@ export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     const read = /^\/read\/([A-Za-z0-9-]{1,64})$/.exec(url.pathname);
-    if (read) return handleRead(request, env, read[1]);
+    if (read) return handleRead(request, env, read[1], url.searchParams.get("refresh") === "1");
     if (!url.pathname.startsWith("/api/")) return serveAsset(request, env);
 
     let response: Response;
@@ -104,15 +108,16 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function handleRead(request: Request, env: Env, id: string): Promise<Response> {
-  const page = (status: number, body: string, cache = "no-store") =>
+async function handleRead(request: Request, env: Env, id: string, refresh: boolean): Promise<Response> {
+  // 存档来自数据库，读取很快，不使用浏览器缓存，保证“重新获取”后立即看到新版本。
+  const page = (status: number, body: string) =>
     withHeaders(
       new Response(body, { status, headers: { "Content-Type": "text/html; charset=utf-8" } }),
       {
         "Content-Security-Policy": READER_CSP,
         // 允许被本站页面嵌入（覆盖默认的 DENY）。
         "X-Frame-Options": "SAMEORIGIN",
-        "Cache-Control": cache,
+        "Cache-Control": "no-store",
       },
     );
 
@@ -127,25 +132,55 @@ async function handleRead(request: Request, env: Env, id: string): Promise<Respo
     if ((await readSession(request, env, now)) == null) {
       return page(401, renderReaderMessage({ heading: "请先登录", message: "登录已过期，请返回后重新登录。" }));
     }
-    const link = await getLink(env.DB, id);
-    if (!link) {
+    const found = await getLinkWithArticle(env.DB, id);
+    if (!found) {
       return page(404, renderReaderMessage({ heading: "链接不存在或已被删除" }));
     }
+    const { link, article: existing } = found;
+    const fallbackTitle = link.preview_status === "ok" ? link.title : null;
 
-    const timeout = Number(env.PREVIEW_TIMEOUT_MS);
-    const outcome = await fetchReadable(link.url, timeout > 0 ? timeout : undefined);
-    if (!outcome.ok) {
-      return page(
-        502,
-        renderReaderMessage({
-          heading: "无法在此显示这篇文章",
-          message: `${outcome.reason}。可以返回后重新打开，或打开原网页。`,
-          originalUrl: link.url,
-        }),
-      );
+    if (existing && !refresh) {
+      return page(200, renderReaderPage({
+        title: existing.title ?? fallbackTitle,
+        byline: existing.byline,
+        contentHtml: existing.content_html,
+        originalUrl: link.url,
+        savedAt: existing.saved_at,
+      }));
     }
-    const title = outcome.readable.title ?? (link.preview_status === "ok" ? link.title : null);
-    return page(200, renderReaderPage({ ...outcome.readable, title, originalUrl: link.url }), "private, max-age=300");
+
+    const { content, saved } = await fetchAndStore(env, link, {
+      preview: link.preview_status !== "ok",
+      readable: true,
+    }, now);
+    const outcome = content.readable!;
+    if (outcome.ok) {
+      return page(200, renderReaderPage({
+        ...outcome.readable,
+        title: outcome.readable.title ?? fallbackTitle,
+        originalUrl: link.url,
+        savedAt: saved ? now : null,
+      }));
+    }
+    if (existing) {
+      // 重新获取失败：保留并显示原存档。
+      return page(200, renderReaderPage({
+        title: existing.title ?? fallbackTitle,
+        byline: existing.byline,
+        contentHtml: existing.content_html,
+        originalUrl: link.url,
+        savedAt: existing.saved_at,
+        notice: `重新获取失败（${outcome.reason}），以下仍是之前保存的版本。`,
+      }));
+    }
+    return page(
+      502,
+      renderReaderMessage({
+        heading: "无法在此显示这篇文章",
+        message: `${outcome.reason}。可以返回后重新打开，或打开原网页。`,
+        originalUrl: link.url,
+      }),
+    );
   } catch (err) {
     console.error("阅读视图出错", err);
     return page(500, renderReaderMessage({ heading: "服务器内部错误", message: "可以返回后重新打开。" }));
@@ -283,7 +318,16 @@ async function postLink(
   if (!parsed.ok) throw new HttpError(400, "invalid_url", parsed.reason);
 
   const { row, created } = await submitLink(env.DB, parsed.url, parsed.dedupKey, now);
-  if (row.preview_status !== "ok") ctx.waitUntil(updatePreview(env, row));
+  // 在后台一次抓取中补全预览并存档正文；已有的有效预览和存档不重复抓取。
+  const want: Wanted = {
+    preview: row.preview_status !== "ok",
+    readable: !(await hasArticle(env.DB, row.id)),
+  };
+  if (want.preview || want.readable) {
+    ctx.waitUntil(
+      fetchAndStore(env, row, want, now).catch((err) => console.error("后台抓取失败", err)),
+    );
+  }
 
   const label = row.preview_status === "ok" && row.title ? row.title : row.url;
   return json(created ? 201 : 200, {
@@ -293,20 +337,40 @@ async function postLink(
   });
 }
 
-async function updatePreview(env: Env, row: LinkRow): Promise<void> {
-  const db = env.DB;
-  const timeout = Number(env.PREVIEW_TIMEOUT_MS);
-  try {
-    const outcome = await fetchPreview(row.url, timeout > 0 ? timeout : undefined);
-    if (outcome.ok) {
-      await savePreviewSuccess(db, row.id, outcome.preview.title, outcome.preview.iconUrl);
+// 抓取链接内容并保存：预览结果写入条目，正文写入存档。
+// 两者都只更新仍然存在的条目，失败的预览不会覆盖有效预览。
+async function fetchAndStore(
+  env: Env,
+  row: LinkRow,
+  want: Wanted,
+  now: number,
+): Promise<{ content: LinkContent; saved: boolean }> {
+  const timeout = Number(env.FETCH_TIMEOUT_MS);
+  const content = await fetchLinkContent(row.url, want, timeout > 0 ? timeout : undefined);
+
+  if (content.preview) {
+    if (content.preview.ok) {
+      await savePreviewSuccess(env.DB, row.id, content.preview.preview.title, content.preview.preview.iconUrl);
     } else {
-      console.log(`预览获取失败（${outcome.reason}）：${row.url}`);
-      await savePreviewFailure(db, row.id);
+      console.log(`预览获取失败（${content.preview.reason}）：${row.url}`);
+      await savePreviewFailure(env.DB, row.id);
     }
-  } catch (err) {
-    console.error("保存预览失败", err);
   }
+
+  let saved = false;
+  const readable = content.readable;
+  if (readable?.ok && readable.readable.contentHtml.length <= MAX_ARCHIVE_CHARS) {
+    saved = await saveArticle(env.DB, {
+      link_id: row.id,
+      title: readable.readable.title,
+      byline: readable.readable.byline,
+      content_html: readable.readable.contentHtml,
+      source_url: readable.readable.finalUrl,
+    }, now);
+  } else if (readable && !readable.ok) {
+    console.log(`正文存档失败（${readable.reason}）：${row.url}`);
+  }
+  return { content, saved };
 }
 
 async function requireSession(request: Request, env: Env, now: number): Promise<void> {

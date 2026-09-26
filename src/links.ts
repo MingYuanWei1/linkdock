@@ -111,11 +111,13 @@ export async function getLink(db: D1Database, id: string): Promise<LinkRow | nul
 }
 
 export async function deleteLink(db: D1Database, id: string): Promise<boolean> {
+  // 外键已设置级联删除；这里显式删除存档，不依赖外键约束是否开启。
   const results = await db.batch([
+    db.prepare("DELETE FROM articles WHERE link_id = ?1").bind(id),
     db.prepare("DELETE FROM links WHERE id = ?1").bind(id),
     db.prepare(`${BUMP_VERSION} AND changes() > 0`),
   ]);
-  return results[0].meta.changes > 0;
+  return results[1].meta.changes > 0;
 }
 
 // 只更新仍然存在的条目：预览完成前被删除的条目不会被重新创建。
@@ -145,4 +147,88 @@ export async function savePreviewFailure(db: D1Database, id: string): Promise<vo
       .bind(id),
     db.prepare(`${BUMP_VERSION} AND changes() > 0`),
   ]);
+}
+
+// ---------- 文章存档 ----------
+
+export interface ArticleRow {
+  link_id: string;
+  title: string | null;
+  byline: string | null;
+  content_html: string;
+  source_url: string;
+  saved_at: number;
+}
+
+export async function getArticle(db: D1Database, linkId: string): Promise<ArticleRow | null> {
+  return db.prepare("SELECT * FROM articles WHERE link_id = ?1").bind(linkId).first<ArticleRow>();
+}
+
+// 阅读视图用：一次查询同时取得条目与存档，减少到数据库的往返次数。
+export async function getLinkWithArticle(
+  db: D1Database,
+  id: string,
+): Promise<{ link: LinkRow; article: ArticleRow | null } | null> {
+  const row = await db
+    .prepare(
+      `SELECT l.*, a.link_id AS a_link_id, a.title AS a_title, a.byline AS a_byline,
+              a.content_html AS a_content_html, a.source_url AS a_source_url, a.saved_at AS a_saved_at
+       FROM links l LEFT JOIN articles a ON a.link_id = l.id
+       WHERE l.id = ?1`,
+    )
+    .bind(id)
+    .first<LinkRow & {
+      a_link_id: string | null;
+      a_title: string | null;
+      a_byline: string | null;
+      a_content_html: string | null;
+      a_source_url: string | null;
+      a_saved_at: number | null;
+    }>();
+  if (!row) return null;
+  const { a_link_id, a_title, a_byline, a_content_html, a_source_url, a_saved_at, ...link } = row;
+  const article = a_link_id == null ? null : {
+    link_id: a_link_id,
+    title: a_title,
+    byline: a_byline,
+    content_html: a_content_html ?? "",
+    source_url: a_source_url ?? link.url,
+    saved_at: a_saved_at ?? 0,
+  };
+  return { link, article };
+}
+
+export async function hasArticle(db: D1Database, linkId: string): Promise<boolean> {
+  const row = await db.prepare("SELECT 1 AS found FROM articles WHERE link_id = ?1").bind(linkId).first();
+  return row != null;
+}
+
+// 只为仍然存在的条目保存存档：条目在抓取期间被删除时不会留下孤立存档。
+// 返回是否已保存。
+export async function saveArticle(
+  db: D1Database,
+  article: Omit<ArticleRow, "saved_at">,
+  savedAt: number,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `INSERT INTO articles (link_id, title, byline, content_html, source_url, saved_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM links WHERE id = ?1)
+       ON CONFLICT (link_id) DO UPDATE SET
+         title = excluded.title,
+         byline = excluded.byline,
+         content_html = excluded.content_html,
+         source_url = excluded.source_url,
+         saved_at = excluded.saved_at`,
+    )
+    .bind(
+      article.link_id,
+      article.title,
+      article.byline,
+      article.content_html,
+      article.source_url,
+      savedAt,
+    )
+    .run();
+  return result.meta.changes > 0;
 }

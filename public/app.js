@@ -29,6 +29,7 @@ const els = {
   viewerBack: $("viewer-back"),
   viewerTitle: $("viewer-title"),
   viewerOpen: $("viewer-open"),
+  viewerRefresh: $("viewer-refresh"),
   viewerLoading: $("viewer-loading"),
   viewerBody: $("viewer-body"),
 };
@@ -312,10 +313,19 @@ function openViewer(link, { push = true } = {}) {
     els.viewerOpen.removeAttribute("href");
     els.viewerOpen.hidden = true;
   }
-  els.viewerLoading.hidden = false;
-  // 每次新建 iframe：新 iframe 的首次加载不会产生历史记录，返回操作始终回到列表，
-  // 而不是在 iframe 的历史中后退。
+  loadArticle(link.id, false);
+  els.viewer.hidden = false;
+  document.body.classList.add("viewing");
+  els.viewerBack.focus();
+}
+
+// 每次新建 iframe：新 iframe 的首次加载不会产生历史记录，返回操作始终回到列表，
+// 而不是在 iframe 的历史中后退。
+function loadArticle(id, refresh) {
   els.viewerBody.querySelector("iframe")?.remove();
+  els.viewerLoading.textContent = refresh ? "正在从原网页重新获取…" : "正在加载文章…";
+  els.viewerLoading.hidden = false;
+  els.viewerRefresh.disabled = true;
   const frame = document.createElement("iframe");
   frame.title = "文章阅读视图";
   // 阅读页不含脚本；sandbox 不授予脚本与同源权限，只允许在新标签页打开链接。
@@ -323,13 +333,17 @@ function openViewer(link, { push = true } = {}) {
   frame.referrerPolicy = "no-referrer";
   frame.addEventListener("load", () => {
     els.viewerLoading.hidden = true;
+    els.viewerRefresh.disabled = false;
   });
-  frame.src = `/read/${encodeURIComponent(link.id)}`;
+  frame.src = `/read/${encodeURIComponent(id)}${refresh ? "?refresh=1" : ""}`;
+  frame.dataset.id = id;
   els.viewerBody.append(frame);
-  els.viewer.hidden = false;
-  document.body.classList.add("viewing");
-  els.viewerBack.focus();
 }
+
+els.viewerRefresh.addEventListener("click", () => {
+  const frame = els.viewerBody.querySelector("iframe");
+  if (frame && frame.dataset.id) loadArticle(frame.dataset.id, true);
+});
 
 function closeViewer() {
   if (els.viewer.hidden) return;

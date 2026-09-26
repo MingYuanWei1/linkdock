@@ -37,6 +37,7 @@ body {
 .content table { display: block; overflow-x: auto; border-collapse: collapse; }
 .content td, .content th { border: 1px solid #e3e3e0; padding: 4px 8px; }
 .content blockquote { margin: 0 0 1em; padding-left: 12px; border-left: 3px solid #ddd; color: #555; }
+.notice { margin: 0 0 16px; padding: 10px 12px; border-radius: 8px; background: #fff4e5; color: #8a5300; font-size: 14px; }
 .foot { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e8e8e5; font-size: 14px; color: #8a8a8a; }
 .foot a, .actions a { color: #2f6fed; }
 .message { max-width: 520px; margin: 18vh auto 0; padding: 0 20px; text-align: center; }
@@ -74,22 +75,40 @@ function domainOf(url: string): string {
   }
 }
 
+// 存档时间按中国时区显示（阅读页不含脚本，无法按浏览器时区格式化）。
+const SAVED_AT_FORMAT = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai",
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
 export function renderReaderPage(page: {
   title: string | null;
   byline: string | null;
   contentHtml: string;
   originalUrl: string;
+  // 存档时间；为空表示本次内容未能存档（例如正文过长），只是实时显示。
+  savedAt: number | null;
+  notice?: string;
 }): string {
   const title = page.title ?? page.originalUrl;
   const source = [page.byline, domainOf(page.originalUrl)].filter(Boolean).join(" · ");
   const original = escapeAttr(page.originalUrl);
+  const saved = page.savedAt != null
+    ? `链接坞于 ${escapeText(SAVED_AT_FORMAT.format(page.savedAt))} 保存的阅读版本`
+    : "链接坞整理的阅读版本（未存档）";
   return shell(
     title,
     `<main class="reader">
+${page.notice ? `<p class="notice">${escapeText(page.notice)}</p>` : ""}
 <h1>${escapeText(title)}</h1>
 <p class="byline">${escapeText(source)}</p>
 <div class="content">${page.contentHtml}</div>
-<p class="foot">这是链接坞整理的阅读视图，可能缺少视频、评论等互动内容。<a href="${original}" target="_blank" rel="noopener noreferrer">打开原网页</a></p>
+<p class="foot">${saved}，可能缺少视频、评论等互动内容。<a href="${original}" target="_blank" rel="noopener noreferrer">打开原网页</a></p>
 </main>`,
   );
 }

@@ -209,6 +209,12 @@ test("点击链接在站内阅读视图中打开；返回按钮、浏览器返�
   await expect(page.locator("#viewer-loading")).toBeHidden();
   await expect(page.locator("#viewer iframe")).toHaveCount(1);
 
+  // 重新获取：新建 iframe 重新加载，不影响返回行为。
+  await page.getByRole("button", { name: "重新获取" }).click();
+  await expect(frame.getByRole("heading", { name: "无法在此显示这篇文章" })).toBeVisible();
+  await expect(page.locator("#viewer iframe")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "重新获取" })).toBeEnabled();
+
   // 返回按钮回到列表，地址恢复。
   await page.getByRole("button", { name: "‹ 返回" }).click();
   await expect(viewer).toBeHidden();

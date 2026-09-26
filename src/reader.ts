@@ -1,4 +1,4 @@
-// 阅读视图：在服务端获取文章，提取正文并按白名单清理，生成可在站内显示的 HTML。
+// 阅读视图：从抓取到的网页中提取正文并按白名单清理，生成可在站内显示与存档的 HTML。
 //
 // 这是整理后的文章副本，不是原网页：不运行原网页脚本，不包含视频、评论等交互内容。
 // 安全措施分三层：
@@ -7,9 +7,8 @@
 //   2. 阅读页响应带有严格 CSP（禁止任何脚本）和 CSP sandbox；
 //   3. 网页端用不含 allow-scripts / allow-same-origin 的 sandbox iframe 加载阅读页。
 
-import { cleanText, decodeEntities, extractMetadata, fetchPage, pickTitle } from "./preview";
+import { cleanText, decodeEntities, extractMetadata, pickTitle, type FetchPageOptions } from "./preview";
 
-export const READER_TIMEOUT_MS = 10_000;
 const MAX_PAGE_BYTES = 6 * 1024 * 1024;
 // 非微信页面只解析前 2 MiB，控制 CPU 时间。
 const MAX_GENERIC_PARSE_CHARS = 2 * 1024 * 1024;
@@ -30,25 +29,14 @@ export interface Readable {
 
 export type ReaderOutcome = { ok: true; readable: Readable } | { ok: false; reason: string };
 
-export async function fetchReadable(
-  target: string,
-  timeoutMs: number = READER_TIMEOUT_MS,
-): Promise<ReaderOutcome> {
-  const signal = AbortSignal.timeout(timeoutMs);
-  try {
-    // 微信页面约 3.5 MB，正文在前 1 MB 内：读到正文之后的区域即停止，显著缩短加载时间。
-    const stopAt = new URL(target).hostname === WECHAT_HOST ? WECHAT_STOP_AT : null;
-    const fetched = await fetchPage(target, signal, { maxBytes: MAX_PAGE_BYTES, stopAt });
-    if (!fetched.ok) return fetched;
-    const finalUrl = new URL(fetched.finalUrl);
-    return finalUrl.hostname === WECHAT_HOST
-      ? await readWeChat(fetched.html, finalUrl)
-      : await readGeneric(fetched.html, finalUrl);
-  } catch (err) {
-    const name = err instanceof Error ? err.name : "";
-    if (name === "TimeoutError" || name === "AbortError") return { ok: false, reason: "请求超时" };
-    return { ok: false, reason: "请求失败" };
-  }
+// 阅读视图所需的抓取范围。微信页面约 3.5 MB，正文在前 1 MB 内：读到正文之后的区域即停止。
+export function readerFetchOptions(target: string): FetchPageOptions {
+  const stopAt = new URL(target).hostname === WECHAT_HOST ? WECHAT_STOP_AT : null;
+  return { maxBytes: MAX_PAGE_BYTES, stopAt };
+}
+
+export async function readableFromHtml(html: string, finalUrl: URL): Promise<ReaderOutcome> {
+  return finalUrl.hostname === WECHAT_HOST ? readWeChat(html, finalUrl) : readGeneric(html, finalUrl);
 }
 
 async function readWeChat(html: string, finalUrl: URL): Promise<ReaderOutcome> {

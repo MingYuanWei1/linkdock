@@ -373,6 +373,11 @@ body.viewing { overflow: hidden; }
   font-weight: 550;
 }
 
+.viewer-bar .refresh {
+  padding: 0 14px;
+  font-size: 14px;
+}
+
 .open-original {
   display: inline-flex;
   align-items: center;
@@ -414,7 +419,8 @@ body.viewing { overflow: hidden; }
 
 @media (max-width: 480px) {
   .viewer-title { display: none; }
-  .viewer-bar { justify-content: space-between; }
+  .viewer-bar { justify-content: space-between; gap: 8px; padding: 8px; }
+  .viewer-bar .back, .viewer-bar .refresh, .open-original { padding: 0 12px; }
 
   .brand-en { display: none; }
   .submit .primary { flex: 1 1 100%; }

@@ -9,7 +9,7 @@ export default defineConfig({
       miniflare: {
         bindings: {
           ...TEST_SECRETS,
-          PREVIEW_TIMEOUT_MS: "1500",
+          FETCH_TIMEOUT_MS: "1500",
           TEST_MIGRATIONS: await readD1Migrations("./migrations"),
         },
         // 出站请求全部交给可控的测试网站，不访问真实网络。

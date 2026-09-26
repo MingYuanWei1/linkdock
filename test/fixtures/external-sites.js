@@ -125,6 +125,9 @@ export default {
         return html(`<html><head><title>没有 article 的页面</title></head><body>
           <div class="post"><p>这个页面没有 article 或 main 元素，所以阅读视图会使用整个 body 中的正文内容来显示。</p></div>
         </body></html>`);
+      case "/reader-long":
+        // 正文超过存档上限（1 MiB 字符）。
+        return html(`<html><head><title>超长文章</title></head><body><article><p>${"长".repeat(1_100_000)}</p></article></body></html>`);
       case "/reader-empty":
         return html(`<html><head><title>脚本渲染的页面</title></head><body><div id="app"></div>
           <script src="/bundle.js"></script></body></html>`);
