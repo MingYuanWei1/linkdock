@@ -11,6 +11,13 @@
 // 阅读视图（返回 HTML，供网页端在 sandbox iframe 中显示）：
 //   GET    /read/:id           显示已保存链接的文章存档；尚无存档时抓取并存档（仅会话）
 //   GET    /read/:id?refresh=1 重新抓取并更新存档；失败时保留并显示原存档
+//
+// OneNote 导出（可选，见 docs/onenote.md）：
+//   GET    /onenote/connect    跳转到 Microsoft 登录授权（仅会话）
+//   GET    /onenote/callback   授权完成后保存令牌，跳回 /?onenote=结果
+//   GET    /api/onenote        连接状态与导出统计（仅会话）
+//   DELETE /api/onenote        断开连接（仅会话）
+//   定时任务（wrangler.jsonc triggers）重试未完成的导出
 
 import {
   clearLoginFailures,
@@ -41,6 +48,15 @@ import {
   toView,
   type LinkRow,
 } from "./links";
+import {
+  disconnect,
+  exportArticle,
+  exportPending,
+  finishConnect,
+  oneNoteConfig,
+  oneNoteStatus,
+  startConnect,
+} from "./onenote";
 import { renderReaderMessage, renderReaderPage, READER_CSP } from "./reader-page";
 import { parseSubmittedUrl } from "./url";
 
@@ -87,7 +103,10 @@ export default {
   async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     const read = /^\/read\/([A-Za-z0-9-]{1,64})$/.exec(url.pathname);
-    if (read) return handleRead(request, env, read[1], url.searchParams.get("refresh") === "1");
+    if (read) return handleRead(request, env, ctx, read[1], url.searchParams.get("refresh") === "1");
+    if (url.pathname === "/onenote/connect" || url.pathname === "/onenote/callback") {
+      return withHeaders(await handleOneNoteAuth(request, env, url), { "Cache-Control": "no-store" });
+    }
     if (!url.pathname.startsWith("/api/")) return serveAsset(request, env);
 
     let response: Response;
@@ -106,9 +125,20 @@ export default {
     }
     return withHeaders(response, { "Cache-Control": "no-store" });
   },
+
+  async scheduled(_controller, env, ctx): Promise<void> {
+    const config = oneNoteConfig(env);
+    if (config) ctx.waitUntil(exportPending(env.DB, config, Date.now()));
+  },
 } satisfies ExportedHandler<Env>;
 
-async function handleRead(request: Request, env: Env, id: string, refresh: boolean): Promise<Response> {
+async function handleRead(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  id: string,
+  refresh: boolean,
+): Promise<Response> {
   // 存档来自数据库，读取很快，不使用浏览器缓存，保证“重新获取”后立即看到新版本。
   const page = (status: number, body: string) =>
     withHeaders(
@@ -153,6 +183,7 @@ async function handleRead(request: Request, env: Env, id: string, refresh: boole
       preview: link.preview_status !== "ok",
       readable: true,
     }, now);
+    if (saved) ctx.waitUntil(exportSaved(env, link.id));
     const outcome = content.readable!;
     if (outcome.ok) {
       return page(200, renderReaderPage({
@@ -185,6 +216,20 @@ async function handleRead(request: Request, env: Env, id: string, refresh: boole
     console.error("阅读视图出错", err);
     return page(500, renderReaderMessage({ heading: "服务器内部错误", message: "可以返回后重新打开。" }));
   }
+}
+
+// 连接 OneNote 的两步跳转。结果（包括未登录、未配置）都跳回网页，由网页显示。
+async function handleOneNoteAuth(request: Request, env: Env, url: URL): Promise<Response> {
+  const back = (result: string) => new Response(null, { status: 302, headers: { Location: `/?onenote=${result}` } });
+  if (request.method !== "GET") return new Response(null, { status: 405 });
+  const config = oneNoteConfig(env);
+  if (configProblem(env) || !config) return back("unavailable");
+  const now = Date.now();
+  if (url.pathname === "/onenote/connect") {
+    if ((await readSession(request, env, now)) == null) return back("login");
+    return startConnect(request, config);
+  }
+  return finishConnect(request, env.DB, config, now);
 }
 
 async function serveAsset(request: Request, env: Env): Promise<Response> {
@@ -234,6 +279,18 @@ async function handleApi(
       return getLinks(request, env, url);
     }
     if (method === "POST") return postLink(request, env, ctx, now);
+    throw methodNotAllowed();
+  }
+
+  if (pathname === "/api/onenote") {
+    await requireSession(request, env, now);
+    const config = oneNoteConfig(env);
+    if (method === "GET") return json(200, await oneNoteStatus(env.DB, config));
+    if (method === "DELETE") {
+      requireSameOrigin(request);
+      await disconnect(env.DB);
+      return new Response(null, { status: 204 });
+    }
     throw methodNotAllowed();
   }
 
@@ -325,7 +382,9 @@ async function postLink(
   };
   if (want.preview || want.readable) {
     ctx.waitUntil(
-      fetchAndStore(env, row, want, now).catch((err) => console.error("后台抓取失败", err)),
+      fetchAndStore(env, row, want, now)
+        .then(({ saved }) => (saved ? exportSaved(env, row.id) : undefined))
+        .catch((err) => console.error("后台抓取失败", err)),
     );
   }
 
@@ -371,6 +430,17 @@ async function fetchAndStore(
     console.log(`正文存档失败（${readable.reason}）：${row.url}`);
   }
   return { content, saved };
+}
+
+// 刚保存的存档导出到 OneNote；未配置或未连接时不做任何事。在后台运行，不抛出错误。
+async function exportSaved(env: Env, linkId: string): Promise<void> {
+  const config = oneNoteConfig(env);
+  if (!config) return;
+  try {
+    await exportArticle(env.DB, config, linkId, Date.now());
+  } catch (err) {
+    console.error("导出到 OneNote 失败", err);
+  }
 }
 
 async function requireSession(request: Request, env: Env, now: number): Promise<void> {

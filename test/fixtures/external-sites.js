@@ -3,6 +3,49 @@
 
 const requests = [];
 
+// 模拟 Microsoft 登录与 OneNote 接口；测试通过 https://fixture.control/microsoft?… 调整行为。
+const MICROSOFT_DEFAULTS = { failPages: 0, rejectRefresh: false, expiresIn: 3600 };
+const microsoft = { ...MICROSOFT_DEFAULTS, issued: 0, pages: 0 };
+
+function microsoftReset() {
+  Object.assign(microsoft, MICROSOFT_DEFAULTS, { issued: 0, pages: 0 });
+}
+
+function tokenResponse(form) {
+  if (form.get("client_id") !== "test-client-id" || form.get("client_secret") !== "test-client-secret") {
+    return Response.json({ error: "invalid_client" }, { status: 401 });
+  }
+  const grant = form.get("grant_type");
+  const valid = grant === "authorization_code"
+    ? form.get("code") === "good-code" && !!form.get("code_verifier")
+    // 刷新令牌会轮换：只有最近签发的一个有效。
+    : grant === "refresh_token" && !microsoft.rejectRefresh && form.get("refresh_token") === `refresh-${microsoft.issued}`;
+  if (!valid) return Response.json({ error: "invalid_grant" }, { status: 400 });
+  microsoft.issued += 1;
+  return Response.json({
+    token_type: "Bearer",
+    scope: form.get("scope"),
+    expires_in: microsoft.expiresIn,
+    access_token: `access-${microsoft.issued}`,
+    refresh_token: `refresh-${microsoft.issued}`,
+  });
+}
+
+function createPageResponse(request) {
+  if (!/^Bearer access-\d+$/.test(request.headers.get("Authorization") ?? "")) {
+    return Response.json({ error: { code: "40001", message: "Unauthorized" } }, { status: 401 });
+  }
+  if (microsoft.failPages > 0) {
+    microsoft.failPages -= 1;
+    return Response.json({ error: { code: "20001", message: "Service unavailable" } }, { status: 503 });
+  }
+  microsoft.pages += 1;
+  return Response.json(
+    { id: `page-${microsoft.pages}`, links: { oneNoteWebUrl: { href: `https://onenote.example/page-${microsoft.pages}` } } },
+    { status: 201 },
+  );
+}
+
 const WECHAT_ARTICLE = (title) => `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
@@ -52,16 +95,32 @@ export default {
       if (url.pathname === "/requests") return Response.json(requests);
       if (url.pathname === "/reset") {
         requests.length = 0;
+        microsoftReset();
+        return new Response("ok");
+      }
+      if (url.pathname === "/microsoft") {
+        for (const [key, value] of url.searchParams) {
+          microsoft[key] = typeof MICROSOFT_DEFAULTS[key] === "boolean" ? value === "1" : Number(value);
+        }
         return new Response("ok");
       }
       return new Response("not found", { status: 404 });
     }
 
+    const isMicrosoft = url.hostname === "login.microsoftonline.com" || url.hostname === "graph.microsoft.com";
     requests.push({
       url: request.url,
       method: request.method,
       headers: Object.fromEntries(request.headers),
+      ...(isMicrosoft && request.method === "POST" ? { body: await request.clone().text() } : {}),
     });
+
+    if (url.hostname === "login.microsoftonline.com" && url.pathname.endsWith("/oauth2/v2.0/token")) {
+      return tokenResponse(new URLSearchParams(await request.text()));
+    }
+    if (url.hostname === "graph.microsoft.com" && url.pathname === "/v1.0/me/onenote/pages" && request.method === "POST") {
+      return createPageResponse(request);
+    }
 
     if (url.hostname === "mp.weixin.qq.com") {
       if (url.pathname === "/s/ErrorPageSample0001") return html(WECHAT_ERROR_PAGE);

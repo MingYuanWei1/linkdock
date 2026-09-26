@@ -55,7 +55,7 @@ async function signingKey(env: Env): Promise<CryptoKey> {
   );
 }
 
-function base64url(bytes: ArrayBuffer): string {
+export function base64url(bytes: ArrayBuffer): string {
   let s = "";
   for (const b of new Uint8Array(bytes)) s += String.fromCharCode(b);
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -106,7 +106,7 @@ export async function readSession(request: Request, env: Env, now: number): Prom
   return valid ? expires : null;
 }
 
-function getCookie(request: Request, name: string): string | null {
+export function getCookie(request: Request, name: string): string | null {
   const header = request.headers.get("Cookie");
   if (!header) return null;
   for (const part of header.split(";")) {

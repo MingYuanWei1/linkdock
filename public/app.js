@@ -32,6 +32,10 @@ const els = {
   viewerRefresh: $("viewer-refresh"),
   viewerLoading: $("viewer-loading"),
   viewerBody: $("viewer-body"),
+  oneNote: $("onenote"),
+  oneNoteText: $("onenote-text"),
+  oneNoteConnect: $("onenote-connect"),
+  oneNoteDisconnect: $("onenote-disconnect"),
 };
 
 const state = {
@@ -107,6 +111,7 @@ function showApp() {
   resetList();
   refresh();
   restoreViewerFromUrl();
+  loadOneNote();
 }
 
 function resetList() {
@@ -296,6 +301,60 @@ async function remove(link, button) {
   render();
   refresh();
 }
+
+// ---------- OneNote 导出 ----------
+
+// 连接 OneNote 后从 Microsoft 跳回时，地址带有 ?onenote=结果；显示一次后从地址中去掉。
+const ONENOTE_RESULTS = {
+  connected: "已连接 OneNote",
+  denied: "已取消连接 OneNote",
+  failed: "连接 OneNote 失败，请重试",
+  unavailable: "OneNote 导出尚未配置",
+};
+const oneNoteResult = new URLSearchParams(location.search).get("onenote");
+if (oneNoteResult) history.replaceState(history.state, "", location.pathname + location.hash);
+
+async function loadOneNote() {
+  let status;
+  try {
+    status = await (await api("/api/onenote")).json();
+  } catch {
+    return; // 不影响列表使用
+  }
+  els.oneNote.hidden = !status.available;
+  if (!status.available) return;
+  let text;
+  if (!status.connected) {
+    text = "可以把存档的文章自动导出到 OneNote。";
+  } else if (status.error) {
+    text = `OneNote 导出已暂停：${status.error}`;
+  } else {
+    text = `已连接 OneNote，新存档的文章会自动导出（已导出 ${status.exported} 篇`;
+    text += status.failed ? `，${status.failed} 篇失败）。` : "）。";
+  }
+  // 只显示与当前状态一致的结果（例如之后已在其他设备断开时不再显示“已连接”）。
+  const ok = status.connected && !status.error;
+  const result = ONENOTE_RESULTS[oneNoteResult];
+  const fits = oneNoteResult === "connected" ? ok : !ok;
+  els.oneNoteText.textContent = result && fits ? `${result}。${text}` : text;
+  els.oneNoteConnect.hidden = status.connected && !status.error;
+  els.oneNoteConnect.textContent = status.connected ? "重新连接" : "连接 OneNote";
+  els.oneNoteDisconnect.hidden = !status.connected;
+}
+
+els.oneNoteDisconnect.addEventListener("click", async () => {
+  if (!window.confirm("断开 OneNote？之后存档的文章不再导出，已导出的页面保留在 OneNote 中。")) return;
+  els.oneNoteDisconnect.disabled = true;
+  try {
+    await api("/api/onenote", { method: "DELETE" });
+  } catch (err) {
+    if (err.status === 401) return showLogin("登录已过期，请重新登录");
+    window.alert(`断开失败：${err.message}`);
+  } finally {
+    els.oneNoteDisconnect.disabled = false;
+  }
+  loadOneNote();
+});
 
 // ---------- 复制链接 ----------
 

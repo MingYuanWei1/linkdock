@@ -63,7 +63,7 @@ ${body}
 </html>`;
 }
 
-function escapeAttr(value: string): string {
+export function escapeAttr(value: string): string {
   return escapeText(value).replace(/"/g, "&quot;");
 }
 

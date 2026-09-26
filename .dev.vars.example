@@ -2,3 +2,6 @@
 APP_PASSWORD=local dev password
 UPLOAD_KEY=local-upload-key-change-me-0123456789
 SESSION_SECRET=local-session-secret-change-me-0123456789
+# 可选：导出到 OneNote（见 docs/onenote.md）。
+# MS_CLIENT_ID=
+# MS_CLIENT_SECRET=

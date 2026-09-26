@@ -97,7 +97,7 @@ export async function waitForPreview(cookie: string, id: string): Promise<LinkVi
 }
 
 export async function outboundRequests(): Promise<
-  { url: string; method: string; headers: Record<string, string> }[]
+  { url: string; method: string; headers: Record<string, string>; body?: string }[]
 > {
   return (await fetch("https://fixture.control/requests")).json();
 }

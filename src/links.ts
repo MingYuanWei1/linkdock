@@ -114,10 +114,11 @@ export async function deleteLink(db: D1Database, id: string): Promise<boolean> {
   // 外键已设置级联删除；这里显式删除存档，不依赖外键约束是否开启。
   const results = await db.batch([
     db.prepare("DELETE FROM articles WHERE link_id = ?1").bind(id),
+    db.prepare("DELETE FROM onenote_exports WHERE link_id = ?1").bind(id),
     db.prepare("DELETE FROM links WHERE id = ?1").bind(id),
     db.prepare(`${BUMP_VERSION} AND changes() > 0`),
   ]);
-  return results[1].meta.changes > 0;
+  return results[2].meta.changes > 0;
 }
 
 // 只更新仍然存在的条目：预览完成前被删除的条目不会被重新创建。

@@ -3,4 +3,6 @@ export const TEST_SECRETS = {
   APP_PASSWORD: "correct horse battery",
   UPLOAD_KEY: "upload-key-0123456789abcdefghij",
   SESSION_SECRET: "session-secret-0123456789abcdefghij",
+  MS_CLIENT_ID: "test-client-id",
+  MS_CLIENT_SECRET: "test-client-secret",
 };

@@ -355,6 +355,10 @@ a.title:hover { color: var(--accent); }
 
 .footer a { color: var(--accent); }
 
+.onenote { margin: 12px 0 0; }
+.onenote a,
+.onenote button { margin-left: 8px; }
+
 body.viewing { overflow: hidden; }
 
 .viewer {

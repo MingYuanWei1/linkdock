@@ -5,6 +5,8 @@
   "compatibility_date": "2026-08-01",
   "workers_dev": true,
   "observability": { "enabled": true },
+  // 重试未完成的 OneNote 导出（未配置 OneNote 时什么也不做）。
+  "triggers": { "crons": ["*/30 * * * *"] },
   "assets": {
     "directory": "public",
     "binding": "ASSETS",
@@ -20,4 +22,5 @@
     }
   ]
   // APP_PASSWORD、UPLOAD_KEY、SESSION_SECRET 通过 `wrangler secret put` 设置，见 README。
+  // 可选的 OneNote 导出：MS_CLIENT_ID、MS_CLIENT_SECRET 同样通过 `wrangler secret put` 设置，见 docs/onenote.md。
 }
