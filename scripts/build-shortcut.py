@@ -82,9 +82,11 @@ def build(site: str) -> dict:
         action("is.workflow.actions.gettext", UUID=site_id, WFTextActionText=site),
         # 2：上传密钥（导入时询问）
         action("is.workflow.actions.gettext", UUID=key_id, WFTextActionText=""),
-        # 从分享输入中提取链接，只取第一个
+        # 从分享输入中提取链接，只取第一个。
+        # 此动作的输入是文本参数，变量必须以文本（WFTextTokenString）形式嵌入；
+        # 若写成 WFTextTokenAttachment，iOS 读到的输入为空，结果总是“没有找到链接”。
         action("is.workflow.actions.detect.link", UUID=urls_id,
-               WFInput=attachment({"Type": "ExtensionInput"})),
+               WFInput=text(OBJ, [{"Type": "ExtensionInput"}])),
         action("is.workflow.actions.getitemfromlist", UUID=item_id,
                WFInput=attachment(output_ref(urls_id, "URL")), WFItemSpecifier="First Item"),
         # 没有链接时提示并停止
