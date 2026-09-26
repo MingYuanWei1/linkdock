@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <title>链接坞 LinkDock</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand"><img src="/icon.svg" alt="" width="24" height="24"> 链接坞 <span class="brand-en">LinkDock</span></h1>
+    <button id="logout" class="ghost" type="button" hidden>退出登录</button>
+  </header>
+
+  <main>
+    <p id="boot" class="state" role="status">正在加载…</p>
+
+    <section id="login-view" hidden aria-labelledby="login-title">
+      <form id="login-form" class="card login" novalidate>
+        <h2 id="login-title">登录</h2>
+        <p class="hint">输入访问密码查看你的私有链接列表。</p>
+        <!-- 供浏览器与钥匙串识别并保存密码，本应用没有用户名。 -->
+        <input type="text" name="username" autocomplete="username" value="LinkDock" hidden aria-hidden="true" tabindex="-1">
+        <label class="field">
+          <span class="visually-hidden">访问密码</span>
+          <input id="password" name="password" type="password" autocomplete="current-password"
+                 placeholder="访问密码" required>
+        </label>
+        <button type="submit" class="primary">登录</button>
+        <p id="login-message" class="message" role="alert"></p>
+      </form>
+    </section>
+
+    <section id="app-view" hidden>
+      <form id="submit-form" class="card submit" novalidate>
+        <label class="field grow">
+          <span class="visually-hidden">链接</span>
+          <input id="url" name="url" type="url" inputmode="url" autocomplete="off" autocapitalize="off"
+                 spellcheck="false" placeholder="粘贴链接，例如 https://mp.weixin.qq.com/s/…" required>
+        </label>
+        <button type="submit" class="primary">保存</button>
+        <p id="submit-message" class="message" role="status" aria-live="polite"></p>
+      </form>
+
+      <div class="toolbar">
+        <label class="field grow search">
+          <span class="visually-hidden">搜索</span>
+          <input id="search" type="search" placeholder="搜索标题或网址" autocomplete="off" enterkeyhint="search">
+        </label>
+        <span id="sync" class="sync" role="status" aria-live="polite"></span>
+      </div>
+
+      <div id="list-error" class="banner" role="alert" hidden>
+        <span id="list-error-text"></span>
+        <button id="retry" type="button" class="ghost">重试</button>
+      </div>
+
+      <p id="list-state" class="state" role="status"></p>
+      <ul id="links" class="links" aria-label="已保存的链接"></ul>
+      <button id="more" type="button" class="ghost more" hidden>加载更多</button>
+    </section>
+  </main>
+</body>
+</html>

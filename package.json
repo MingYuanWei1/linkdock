@@ -1,0 +1,27 @@
+{
+  "name": "linkdock",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LinkDock（链接坞）：个人跨设备链接收集工具，运行在 Cloudflare Workers + D1。",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply linkdock --local",
+    "db:migrate:remote": "wrangler d1 migrations apply linkdock --remote",
+    "deploy": "wrangler d1 migrations apply linkdock --remote && wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260926.1",
+    "@playwright/test": "^1.63.0",
+    "@vitest/runner": "^4.1.11",
+    "@vitest/snapshot": "^4.1.11",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.141.0"
+  }
+}

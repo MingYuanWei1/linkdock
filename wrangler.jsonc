@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "linkdock",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    // 所有请求先经过 Worker，以便统一添加安全响应头。
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "linkdock",
+      "database_id": "77a05f99-bd99-45de-af91-e8b0d317a094",
+      "migrations_dir": "migrations"
+    }
+  ]
+  // APP_PASSWORD、UPLOAD_KEY、SESSION_SECRET 通过 `wrangler secret put` 设置，见 README。
+}

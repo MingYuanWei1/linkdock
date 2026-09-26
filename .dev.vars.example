@@ -1,0 +1,4 @@
+# 本地开发用的密钥（复制为 .dev.vars 后修改）。.dev.vars 不会提交到仓库。
+APP_PASSWORD=local dev password
+UPLOAD_KEY=local-upload-key-change-me-0123456789
+SESSION_SECRET=local-session-secret-change-me-0123456789
